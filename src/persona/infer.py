@@ -44,7 +44,10 @@ def load_persona_model(persona_id: str, checkpoint_dir: str | Path):
 
 
 # Keeps replies short without a hard token cutoff; models otherwise ramble on indefinitely.
-_CONCISENESS_HINT = "Respond concisely, in no more than two or three sentences."
+_CONCISENESS_HINT = "Respond concisely, in no more than three or four sentences."
+
+# Used to prompt a persona's opening line when it's first activated in a conversation.
+_GREETING_INSTRUCTION = "Introduce yourself and offer a brief greeting to those gathered."
 
 
 def build_prompt_for_persona(persona, transcript: list[dict]) -> str:
@@ -56,17 +59,8 @@ def build_prompt_for_persona(persona, transcript: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def generate(
-    persona_id: str,
-    transcript: list[dict],
-    checkpoint_dir: str | Path,
-    max_new_tokens: int = 300,
-) -> str:
-    """Generate a persona-voiced reply continuing the given conversation transcript."""
+def _run_generation(model, tokenizer, prompt: str, max_new_tokens: int) -> str:
     import torch
-
-    model, tokenizer, persona = load_persona_model(persona_id, checkpoint_dir)
-    prompt = build_prompt_for_persona(persona, transcript)
 
     inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
     with torch.no_grad():
@@ -94,6 +88,31 @@ def generate(
     return text
 
 
+def generate(
+    persona_id: str,
+    transcript: list[dict],
+    checkpoint_dir: str | Path,
+    max_new_tokens: int = 300,
+) -> str:
+    """Generate a persona-voiced reply continuing the given conversation transcript."""
+    model, tokenizer, persona = load_persona_model(persona_id, checkpoint_dir)
+    prompt = build_prompt_for_persona(persona, transcript)
+    return _run_generation(model, tokenizer, prompt, max_new_tokens)
+
+
+def generate_greeting(
+    persona_id: str,
+    transcript: list[dict],
+    checkpoint_dir: str | Path,
+    max_new_tokens: int = 150,
+) -> str:
+    """Generate a persona's opening greeting, without persisting the prompt instruction as a real turn."""
+    model, tokenizer, persona = load_persona_model(persona_id, checkpoint_dir)
+    greeting_transcript = transcript + [{"speaker": "user", "text": _GREETING_INSTRUCTION}]
+    prompt = build_prompt_for_persona(persona, greeting_transcript)
+    return _run_generation(model, tokenizer, prompt, max_new_tokens)
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate a persona-voiced response.")
     parser.add_argument("--persona", required=True, help="Persona id from the registry.")
@@ -110,3 +129,4 @@ if __name__ == "__main__":
         checkpoint_dir=args.checkpoint,
     )
     print(reply)
+

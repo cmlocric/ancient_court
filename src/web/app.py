@@ -4,7 +4,7 @@ from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request
 
-from src.persona.infer import generate
+from src.persona.infer import generate, generate_greeting
 from src.persona.registry import PERSONAS
 from src.web.conversation import append_turn, get_transcript
 
@@ -54,8 +54,27 @@ def create_app() -> Flask:
 
         return jsonify({"session_id": session_id, "turns": new_turns})
 
+    @app.post("/persona/activate")
+    def persona_activate():
+        payload = request.get_json(force=True) or {}
+        session_id = payload.get("session_id") or str(uuid.uuid4())
+        persona_id = payload.get("persona_id")
+
+        if persona_id not in PERSONAS:
+            return jsonify({"error": f"unknown persona_id: {persona_id}"}), 400
+
+        # Loads (and caches) the model on first activation, then has the persona
+        # greet the court instead of waiting for the first user question.
+        transcript = get_transcript(session_id)
+        checkpoint_dir = _resolve_checkpoint_dir(persona_id)
+        greeting = generate_greeting(persona_id, transcript, checkpoint_dir)
+        append_turn(session_id, persona_id, greeting)
+
+        return jsonify({"session_id": session_id, "turn": {"speaker": persona_id, "text": greeting}})
+
     return app
 
 
 if __name__ == "__main__":
-    create_app().run(debug=True)
+    # Threaded so a persona activation (model load) doesn't block other requests.
+    create_app().run(debug=True, threaded=True)

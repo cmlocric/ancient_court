@@ -2,6 +2,7 @@ import argparse
 from pathlib import Path
 
 from .dataset_builder import build_dataset
+from .infer import _CONCISENESS_HINT
 from .registry import get_persona
 from .training_config import TrainingConfig
 
@@ -13,12 +14,18 @@ def _load_split_datasets(train_path: Path, val_path: Path):
     return load_dataset("json", data_files=data_files)
 
 
-def _formatting_func(example: dict) -> str:
-    return (
-        f"<|system|>\n{example['system']}\n"
-        f"<|instruction|>\n{example['instruction']}\n"
-        f"<|response|>\n{example['response']}"
-    )
+def _make_formatting_func(persona_id: str):
+    # Must match build_prompt_for_persona in infer.py exactly — otherwise the
+    # model is trained on a different prompt layout than the one used at
+    # generation time and never learns what the inference-time tags mean.
+    def _formatting_func(example: dict) -> str:
+        return (
+            f"<|system|>\n{example['system']} {_CONCISENESS_HINT}\n"
+            f"<|user|>\n{example['instruction']}\n"
+            f"<|{persona_id}|>\n{example['response']}"
+        )
+
+    return _formatting_func
 
 
 def _build_quantization_config(use_4bit: bool):
@@ -43,6 +50,8 @@ def train(config: TrainingConfig) -> Path:
     from trl import SFTConfig, SFTTrainer
 
     get_persona(config.persona_id)  # validates persona_id exists
+
+    formatting_func = _make_formatting_func(config.persona_id)
 
     training_data_dir = Path(__file__).resolve().parent.parent / "training_data"
     train_path = training_data_dir / f"{config.persona_id}_train.jsonl"
@@ -94,7 +103,7 @@ def train(config: TrainingConfig) -> Path:
         train_dataset=dataset["train"],
         eval_dataset=dataset["validation"],
         peft_config=lora_config,
-        formatting_func=_formatting_func,
+        formatting_func=formatting_func,
         processing_class=tokenizer,
     )
 

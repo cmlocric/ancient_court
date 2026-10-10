@@ -154,8 +154,6 @@ GPU or any model downloads.
 
 ## Known limitations (POC stage)
 
-- Generation has no stop sequence yet, so replies can run on past the first
-  natural turn.
 - Chat history is in-memory only — it resets when the Flask server restarts.
 - Dataset instructions are generic/templated, not topic-aware.
 - Only one persona is trained so far; multi-persona "council" behavior is

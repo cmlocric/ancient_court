@@ -15,10 +15,10 @@
     <div id="personas">
       <span class="section-label">Advisors</span>
       {% for persona in personas %}
-        <label class="persona-chip">
-          <input type="checkbox" class="persona-checkbox" value="{{ persona.persona_id }}" />
+        <button type="button" class="persona-chip" data-persona-id="{{ persona.persona_id }}">
+          <span class="spinner" aria-hidden="true"></span>
           <span>{{ persona.display_name }} <small>— {{ persona.title }}</small></span>
-        </label>
+        </button>
       {% endfor %}
     </div>
 

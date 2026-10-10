@@ -7,18 +7,22 @@ from .registry import PersonaConfig, get_persona
 
 _TRAINING_DATA_DIR = Path(__file__).resolve().parent.parent / "training_data"
 
-# Generic reflective instructions; intentionally persona-agnostic so the same
-# pool works for any future persona added to the registry.
-_INSTRUCTION_TEMPLATES = [
-    "Share your private reflections on how one ought to live.",
-    "What wisdom would you offer about facing hardship?",
-    "Reflect, in your own words, on the nature of virtue.",
-    "What guidance would you give on dealing with other people?",
-    "Write a journal entry on the fleeting nature of life.",
-    "What do you believe is the proper role of reason in guiding action?",
-    "Offer counsel on how to remain calm amid adversity.",
-    "Speak on the relationship between duty and nature.",
+# Generic reflective instructions, each tagged with keywords used to match it
+# against a chunk's actual content (see _select_instruction). This keeps the
+# instruction and response thematically correlated instead of just cycling
+# through templates regardless of what the chunk says — otherwise the model
+# learns to ignore the instruction entirely and just reproduce memorized text.
+_INSTRUCTION_TOPICS: list[tuple[str, tuple[str, ...]]] = [
+    ("Share your private reflections on how one ought to live.", ("live", "life", "living")),
+    ("What wisdom would you offer about facing hardship?", ("hardship", "suffer", "pain", "adversity", "affliction", "trouble")),
+    ("Reflect, in your own words, on the nature of virtue.", ("virtue", "virtuous", "justice", "goodness")),
+    ("What guidance would you give on dealing with other people?", ("men", "man", "friend", "neighbour", "neighbor", "fellow")),
+    ("Write a journal entry on the fleeting nature of life.", ("time", "eternity", "age", "death", "die", "mortal", "vanish")),
+    ("What do you believe is the proper role of reason in guiding action?", ("reason", "mind", "understanding", "judgment")),
+    ("Offer counsel on how to remain calm amid adversity.", ("calm", "patience", "patient", "tranquil", "content")),
+    ("Speak on the relationship between duty and nature.", ("duty", "nature", "providence", "god", "gods")),
 ]
+_INSTRUCTION_TEMPLATES = [text for text, _keywords in _INSTRUCTION_TOPICS]
 
 # Boilerplate line patterns stripped from raw PDF-extracted pages before chunking.
 _BOILERPLATE_LINE_PATTERNS = [
@@ -29,10 +33,38 @@ _BOILERPLATE_LINE_PATTERNS = [
 
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
 
+# Matches a page's section header (e.g. "FIRST BOOK" .. "TWELFTH BOOK") so we
+# can keep only the persona's own first-person meditations and drop editorial
+# front/back matter (introduction, appendix letters, notes, glossary) which is
+# written about the persona in someone else's voice, not by them.
+_BOOK_HEADER_RE = re.compile(
+    r"^(FIRST|SECOND|THIRD|FOURTH|FIFTH|SIXTH|SEVENTH|EIGHTH|NINTH|TENTH|ELEVENTH|TWELFTH)\s+BOOK\s*$"
+)
+
+
+def _is_book_content_page(raw_text: str) -> bool:
+    return any(_BOOK_HEADER_RE.match(line.strip()) for line in raw_text.splitlines()[:3])
+
+
+def _select_instruction(chunk_text: str, fallback_index: int) -> str:
+    lowered = chunk_text.lower()
+    scores = [
+        sum(len(re.findall(rf"\b{re.escape(keyword)}\b", lowered)) for keyword in keywords)
+        for _text, keywords in _INSTRUCTION_TOPICS
+    ]
+    best_index = max(range(len(scores)), key=lambda i: scores[i])
+    if scores[best_index] == 0:
+        return _INSTRUCTION_TEMPLATES[fallback_index % len(_INSTRUCTION_TEMPLATES)]
+    return _INSTRUCTION_TEMPLATES[best_index]
+
 
 def _load_pages(persona: PersonaConfig) -> list[dict]:
     data = json.loads(persona.source_json.read_text(encoding="utf-8"))
-    return data["pages"]
+    pages = data["pages"]
+    # Only filter when the source actually has book-section headers; sources
+    # without them (e.g. test fixtures, other personas) are used unfiltered.
+    book_pages = [page for page in pages if _is_book_content_page(page["text"])]
+    return book_pages if book_pages else pages
 
 
 def _clean_page_text(raw_text: str) -> str:
@@ -87,7 +119,7 @@ def build_dataset(
     records = [
         {
             "system": persona.system_prompt,
-            "instruction": _INSTRUCTION_TEMPLATES[i % len(_INSTRUCTION_TEMPLATES)],
+            "instruction": _select_instruction(chunk, fallback_index=i),
             "response": chunk,
         }
         for i, chunk in enumerate(chunks)
