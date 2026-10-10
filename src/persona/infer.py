@@ -85,7 +85,8 @@ _GREETING_INSTRUCTION = "Introduce yourself and offer a brief greeting to those 
 # Used for a debate round, where advisors answer each other instead of a new visitor message.
 _DEBATE_INSTRUCTION = (
     "Speak now as {name}, in the first person. Reply directly to {others}, addressing "
-    "them as 'you': say whether you agree or disagree with what they just said, and why."
+    "them as 'you'. Do not compliment them or seek a middle ground: find the weakest point "
+    "in what they just said, attack it bluntly, and defend your own view."
 )
 
 
@@ -109,7 +110,9 @@ def build_messages_for_persona(
             f" Also present in this council: {', '.join(others)}. Their words appear prefixed "
             f"with their name. You are {persona.display_name}: always speak as yourself in the "
             "first person ('I'), address the others directly as 'you', never refer to yourself "
-            "by name, and never speak for them."
+            "by name, and never speak for them. You are rivals, not friends: never flatter them, "
+            "challenge their views sharply when you disagree, and do not concede a point unless "
+            "truly persuaded."
         )
     messages = [{"role": "system", "content": system_content}]
     for user_text, persona_text in persona.example_dialogue:
