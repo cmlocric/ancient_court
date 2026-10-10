@@ -98,7 +98,7 @@ and `..._val.jsonl` (90/10 split).
 .venv\Scripts\python.exe -m src.persona.train --persona marcus_aurelius
 ```
 
-Fine-tunes the base model (`microsoft/phi-2` by default) with LoRA and saves
+Fine-tunes the base model (`Qwen/Qwen2.5-1.5B-Instruct` by default) with LoRA and saves
 the adapter to `checkpoints/marcus_aurelius/`.
 
 Useful flags:

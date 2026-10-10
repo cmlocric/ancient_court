@@ -24,14 +24,49 @@ _INSTRUCTION_TOPICS: list[tuple[str, tuple[str, ...]]] = [
 ]
 _INSTRUCTION_TEMPLATES = [text for text, _keywords in _INSTRUCTION_TOPICS]
 
+# Hand-authored small talk so the model learns to handle ordinary conversation
+# in persona, not just reflective philosophical prompts — the book-derived
+# examples never include anything resembling "Hello" or "Thank you", so
+# without these the model treats a greeting as out-of-distribution and falls
+# back to reciting a memorized passage.
+_CONVERSATIONAL_SEEDS: list[tuple[str, str]] = [
+    ("Hello.", "Greetings to you. What is it you wish to discuss?"),
+    ("Hi!", "Well met, friend. Speak your mind."),
+    ("Good morning.", "Good morning. Let us make good use of the day before us."),
+    ("How are you?", "I am as a man ought to be: steady in mind, whatever fortune brings. And you?"),
+    ("How are you doing today?", "Well enough, thank you. My thoughts remain my own to govern, come what may."),
+    ("Who are you?", "I am {display_name}. Ask what you will, and I will answer plainly."),
+    ("What is your name?", "I am called {display_name}."),
+    ("Thank you.", "No thanks are owed between fellow travelers of this life."),
+    ("Thanks for the advice.", "Use it well; that is thanks enough."),
+    ("Goodbye.", "Farewell, then. May reason be your guide until we speak again."),
+    ("See you later.", "Until then, go well."),
+    ("Nice to meet you.", "And you. Let us speak honestly with one another."),
+    ("What should I call you?", "Call me {display_name}, as others do."),
+    ("Can you help me with something?", "Say what troubles you, and I will give what counsel I can."),
+    ("Are you a real person?", "I was a man once, Emperor and student of philosophy; now I speak to you through these words."),
+]
+
 # Boilerplate line patterns stripped from raw PDF-extracted pages before chunking.
 _BOILERPLATE_LINE_PATTERNS = [
     re.compile(r"^Page\s+\d+\s+of\s+\d+\s*$", re.IGNORECASE),
     re.compile(r"^\d+\s*$"),
     re.compile(r"^[A-Z][A-Z\s'.,\-]{2,}$"),  # all-caps header/title lines
+    re.compile(r"^Marcus Aurelius.?\s+Meditations\s*-\s*tr\. Casaubon.*$", re.IGNORECASE),  # recurring watermark line
 ]
 
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
+
+# Section numbers (e.g. "XXIV.") are reflowed inline with the surrounding
+# paragraph text in the source PDF, so the sentence splitter above turns them
+# into their own standalone "sentence" that then leaks into chunk text.
+_ROMAN_NUMERAL_SENTENCE_RE = re.compile(r"^[IVXLCDM]{1,6}\.?$")
+
+# The translation occasionally leaves the original Greek term untranslated
+# inline (e.g. "What is ευδαιμονία, or happiness..."). Rare Greek-script
+# tokens get fine-tuned on disproportionately given how few examples contain
+# them, so drop any sentence containing Greek script to keep responses English-only.
+_GREEK_SCRIPT_RE = re.compile(r"[\u0370-\u03FF\u1F00-\u1FFF]")
 
 # Matches a page's section header (e.g. "FIRST BOOK" .. "TWELFTH BOOK") so we
 # can keep only the persona's own first-person meditations and drop editorial
@@ -76,11 +111,16 @@ def _clean_page_text(raw_text: str) -> str:
         if any(pattern.match(stripped) for pattern in _BOILERPLATE_LINE_PATTERNS):
             continue
         kept_lines.append(stripped)
-    return " ".join(kept_lines)
+    # Drop translator/editor footnotes inlined in brackets (not the persona's own words).
+    return re.sub(r"\[[^\[\]]*\]", " ", " ".join(kept_lines))
 
 
 def _chunk_text(text: str, min_chars: int, max_chars: int) -> list[str]:
-    sentences = [s.strip() for s in _SENTENCE_SPLIT_RE.split(text) if s.strip()]
+    raw_sentences = [s.strip() for s in _SENTENCE_SPLIT_RE.split(text) if s.strip()]
+    sentences = [
+        s for s in raw_sentences
+        if not _ROMAN_NUMERAL_SENTENCE_RE.match(s) and not _GREEK_SCRIPT_RE.search(s)
+    ]
 
     chunks: list[str] = []
     current = ""
@@ -99,6 +139,19 @@ def _chunk_text(text: str, min_chars: int, max_chars: int) -> list[str]:
         chunks.append(current)
 
     return chunks
+
+
+def _conversational_records(persona: PersonaConfig, target_count: int) -> list[dict]:
+    seeds = [
+        {
+            "system": persona.system_prompt,
+            "instruction": instruction,
+            "response": response.format(display_name=persona.display_name),
+        }
+        for instruction, response in _CONVERSATIONAL_SEEDS
+    ]
+    repeats = max(1, round(target_count / len(seeds)))
+    return seeds * repeats
 
 
 def build_dataset(
@@ -124,6 +177,8 @@ def build_dataset(
         }
         for i, chunk in enumerate(chunks)
     ]
+    # Keep small talk at roughly 10% of the dataset so it isn't drowned out by epochs of book quotes.
+    records += _conversational_records(persona, target_count=max(len(_CONVERSATIONAL_SEEDS), len(records) // 10))
 
     random.Random(seed).shuffle(records)
     split_index = int(len(records) * (1 - val_split))

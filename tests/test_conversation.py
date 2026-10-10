@@ -1,4 +1,4 @@
-from src.persona.infer import build_prompt_for_persona
+from src.persona.infer import build_messages_for_persona
 from src.persona.registry import PersonaConfig
 from src.web.conversation import append_turn, get_transcript
 
@@ -34,18 +34,20 @@ def test_get_transcript_is_isolated_per_session():
     assert get_transcript("session-b") == [{"speaker": "user", "text": "Message B"}]
 
 
-def test_build_prompt_for_persona_includes_system_prompt_and_turns_in_order():
+def test_build_messages_for_persona_maps_roles_in_order():
     persona = _fake_persona()
     transcript = [
         {"speaker": "user", "text": "What is virtue?"},
-        {"speaker": "other_persona", "text": "Virtue is its own reward."},
+        {"speaker": "fake_persona", "text": "Virtue is its own reward."},
+        {"speaker": "other_persona", "text": "I disagree."},
     ]
 
-    prompt = build_prompt_for_persona(persona, transcript)
+    messages = build_messages_for_persona(persona, transcript)
 
-    system_index = prompt.index(persona.system_prompt)
-    user_index = prompt.index("What is virtue?")
-    other_index = prompt.index("Virtue is its own reward.")
-    final_marker_index = prompt.rindex(f"<|{persona.persona_id}|>")
-
-    assert system_index < user_index < other_index < final_marker_index
+    assert messages[0]["role"] == "system"
+    assert persona.system_prompt in messages[0]["content"]
+    assert messages[1:] == [
+        {"role": "user", "content": "What is virtue?"},
+        {"role": "assistant", "content": "Virtue is its own reward."},
+        {"role": "user", "content": "other_persona: I disagree."},
+    ]

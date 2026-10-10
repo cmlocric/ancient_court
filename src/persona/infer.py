@@ -1,7 +1,7 @@
 import argparse
 from pathlib import Path
 
-from .registry import get_persona
+from .registry import PERSONAS, get_persona
 
 # Cache of loaded (model, tokenizer) per persona_id, keyed also by checkpoint dir
 # so the web app and CLI both reuse already-loaded models in-process.
@@ -33,7 +33,7 @@ def load_persona_model(persona_id: str, checkpoint_dir: str | Path):
 
     base_model = AutoModelForCausalLM.from_pretrained(
         base_model_id,
-        torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+        dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
         device_map="auto" if torch.cuda.is_available() else None,
     )
     model = PeftModel.from_pretrained(base_model, str(checkpoint_path))
@@ -43,49 +43,52 @@ def load_persona_model(persona_id: str, checkpoint_dir: str | Path):
     return _MODEL_CACHE[cache_key]
 
 
-# Keeps replies short without a hard token cutoff; models otherwise ramble on indefinitely.
-_CONCISENESS_HINT = "Respond concisely, in no more than three or four sentences."
+# Keeps replies short and on-topic; also used verbatim in training so train/inference prompts match.
+_CONCISENESS_HINT = (
+    "Always respond directly to what was just said to you, "
+    "concisely, in no more than three or four sentences."
+)
 
 # Used to prompt a persona's opening line when it's first activated in a conversation.
 _GREETING_INSTRUCTION = "Introduce yourself and offer a brief greeting to those gathered."
 
 
-def build_prompt_for_persona(persona, transcript: list[dict]) -> str:
-    """Build a generation prompt from a persona's system prompt + prior conversation turns."""
-    lines = [f"<|system|>\n{persona.system_prompt} {_CONCISENESS_HINT}"]
+def build_messages_for_persona(persona, transcript: list[dict]) -> list[dict]:
+    """Build chat-template messages from the persona's point of view."""
+    messages = [{"role": "system", "content": f"{persona.system_prompt} {_CONCISENESS_HINT}"}]
     for turn in transcript:
-        lines.append(f"<|{turn['speaker']}|>\n{turn['text']}")
-    lines.append(f"<|{persona.persona_id}|>\n")
-    return "\n".join(lines)
+        speaker = turn["speaker"]
+        if speaker == persona.persona_id:
+            messages.append({"role": "assistant", "content": turn["text"]})
+        elif speaker == "user":
+            messages.append({"role": "user", "content": turn["text"]})
+        else:
+            # Other advisors are presented as named speakers so this persona can react to them.
+            other = PERSONAS.get(speaker)
+            name = other.display_name if other else speaker
+            messages.append({"role": "user", "content": f"{name}: {turn['text']}"})
+    return messages
 
 
-def _run_generation(model, tokenizer, prompt: str, max_new_tokens: int) -> str:
+def _run_generation(model, tokenizer, messages: list[dict], max_new_tokens: int) -> str:
     import torch
 
-    inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+    inputs = tokenizer.apply_chat_template(
+        messages, add_generation_prompt=True, return_tensors="pt", return_dict=True
+    ).to(model.device)
     with torch.no_grad():
         output_ids = model.generate(
             **inputs,
             max_new_tokens=max_new_tokens,
             do_sample=True,
-            temperature=0.8,
+            temperature=0.7,
             top_p=0.9,
             repetition_penalty=1.1,
             pad_token_id=tokenizer.pad_token_id,
-            # Stop as soon as the model starts hallucinating the next turn,
-            # instead of running on until max_new_tokens truncates it mid-sentence.
-            stop_strings=["<|"],
-            tokenizer=tokenizer,
         )
 
     generated = output_ids[0][inputs["input_ids"].shape[1]:]
-    text = tokenizer.decode(generated, skip_special_tokens=True).strip()
-
-    # Safety net in case the stop string lands mid-token and isn't caught above.
-    marker_index = text.find("<|")
-    if marker_index != -1:
-        text = text[:marker_index].strip()
-    return text
+    return tokenizer.decode(generated, skip_special_tokens=True).strip()
 
 
 def generate(
@@ -96,8 +99,8 @@ def generate(
 ) -> str:
     """Generate a persona-voiced reply continuing the given conversation transcript."""
     model, tokenizer, persona = load_persona_model(persona_id, checkpoint_dir)
-    prompt = build_prompt_for_persona(persona, transcript)
-    return _run_generation(model, tokenizer, prompt, max_new_tokens)
+    messages = build_messages_for_persona(persona, transcript)
+    return _run_generation(model, tokenizer, messages, max_new_tokens)
 
 
 def generate_greeting(
@@ -109,8 +112,8 @@ def generate_greeting(
     """Generate a persona's opening greeting, without persisting the prompt instruction as a real turn."""
     model, tokenizer, persona = load_persona_model(persona_id, checkpoint_dir)
     greeting_transcript = transcript + [{"speaker": "user", "text": _GREETING_INSTRUCTION}]
-    prompt = build_prompt_for_persona(persona, greeting_transcript)
-    return _run_generation(model, tokenizer, prompt, max_new_tokens)
+    messages = build_messages_for_persona(persona, greeting_transcript)
+    return _run_generation(model, tokenizer, messages, max_new_tokens)
 
 
 def _parse_args() -> argparse.Namespace:

@@ -14,18 +14,15 @@ def _load_split_datasets(train_path: Path, val_path: Path):
     return load_dataset("json", data_files=data_files)
 
 
-def _make_formatting_func(persona_id: str):
-    # Must match build_prompt_for_persona in infer.py exactly — otherwise the
-    # model is trained on a different prompt layout than the one used at
-    # generation time and never learns what the inference-time tags mean.
-    def _formatting_func(example: dict) -> str:
-        return (
-            f"<|system|>\n{example['system']} {_CONCISENESS_HINT}\n"
-            f"<|user|>\n{example['instruction']}\n"
-            f"<|{persona_id}|>\n{example['response']}"
-        )
-
-    return _formatting_func
+def _to_prompt_completion(example: dict) -> dict:
+    # Same message layout as infer.build_messages_for_persona so train and inference match.
+    return {
+        "prompt": [
+            {"role": "system", "content": f"{example['system']} {_CONCISENESS_HINT}"},
+            {"role": "user", "content": example["instruction"]},
+        ],
+        "completion": [{"role": "assistant", "content": example["response"]}],
+    }
 
 
 def _build_quantization_config(use_4bit: bool):
@@ -51,8 +48,6 @@ def train(config: TrainingConfig) -> Path:
 
     get_persona(config.persona_id)  # validates persona_id exists
 
-    formatting_func = _make_formatting_func(config.persona_id)
-
     training_data_dir = Path(__file__).resolve().parent.parent / "training_data"
     train_path = training_data_dir / f"{config.persona_id}_train.jsonl"
     val_path = training_data_dir / f"{config.persona_id}_val.jsonl"
@@ -60,6 +55,7 @@ def train(config: TrainingConfig) -> Path:
         train_path, val_path = build_dataset(config.persona_id)
 
     dataset = _load_split_datasets(train_path, val_path)
+    dataset = dataset.map(_to_prompt_completion, remove_columns=["system", "instruction", "response"])
 
     tokenizer = AutoTokenizer.from_pretrained(config.base_model_id)
     if tokenizer.pad_token is None:
@@ -69,7 +65,7 @@ def train(config: TrainingConfig) -> Path:
     model = AutoModelForCausalLM.from_pretrained(
         config.base_model_id,
         quantization_config=quantization_config,
-        torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+        dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
         device_map="auto" if torch.cuda.is_available() else None,
     )
 
@@ -92,7 +88,11 @@ def train(config: TrainingConfig) -> Path:
         gradient_accumulation_steps=config.gradient_accumulation_steps,
         learning_rate=config.learning_rate,
         max_length=config.max_seq_length,
+        # Loss only on the persona's reply, so it learns a voice rather than memorizing prompts.
+        completion_only_loss=True,
         logging_steps=1,
+        # Surfaces validation loss each epoch so overfitting on this small dataset is visible.
+        eval_strategy="epoch",
         save_strategy="no",
         report_to=[],
     )
@@ -103,7 +103,6 @@ def train(config: TrainingConfig) -> Path:
         train_dataset=dataset["train"],
         eval_dataset=dataset["validation"],
         peft_config=lora_config,
-        formatting_func=formatting_func,
         processing_class=tokenizer,
     )
 

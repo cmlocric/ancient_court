@@ -1,6 +1,6 @@
 import threading
 
-from src.persona.infer import build_prompt_for_persona
+from src.persona.infer import build_messages_for_persona
 
 # In-memory conversation store: session_id -> list of turns.
 # No database; state resets on server restart (acceptable for this POC).
@@ -18,4 +18,4 @@ def get_transcript(session_id: str) -> list[dict]:
         return list(_SESSIONS.get(session_id, []))
 
 
-__all__ = ["append_turn", "get_transcript", "build_prompt_for_persona"]
+__all__ = ["append_turn", "get_transcript", "build_messages_for_persona"]
