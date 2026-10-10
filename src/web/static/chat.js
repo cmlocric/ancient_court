@@ -7,10 +7,10 @@ const inputEl = document.getElementById("message-input");
 
 function renderTurn(turn) {
   const div = document.createElement("div");
-  div.className = "message";
+  div.className = turn.speaker === "user" ? "message message-user" : "message message-persona";
   const speaker = document.createElement("span");
   speaker.className = "speaker";
-  speaker.textContent = turn.speaker;
+  speaker.textContent = `${turn.speaker}:`;
   const text = document.createElement("span");
   text.textContent = turn.text;
   div.appendChild(speaker);

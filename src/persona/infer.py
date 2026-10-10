@@ -76,7 +76,7 @@ def generate(
             do_sample=True,
             temperature=0.8,
             top_p=0.9,
-            repetition_penalty=1.15,
+            repetition_penalty=1.1,
             pad_token_id=tokenizer.pad_token_id,
             # Stop as soon as the model starts hallucinating the next turn,
             # instead of running on until max_new_tokens truncates it mid-sentence.

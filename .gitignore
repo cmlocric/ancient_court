@@ -6,3 +6,4 @@ training_data/*.jsonl
 .cache/
 wandb/
 *training_data/
+terminal_commands.txt

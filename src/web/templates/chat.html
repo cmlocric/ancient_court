@@ -6,24 +6,29 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
 </head>
 <body>
-  <h1>Ancient Court</h1>
+  <header>
+    <h1>Ancient Court</h1>
+    <p class="subtitle">Converse with history's great advisors</p>
+  </header>
 
-  <div id="personas">
-    <strong>Advisors:</strong>
-    {% for persona in personas %}
-      <label>
-        <input type="checkbox" class="persona-checkbox" value="{{ persona.persona_id }}" />
-        {{ persona.display_name }} — {{ persona.title }}
-      </label>
-    {% endfor %}
-  </div>
+  <main class="chat-card">
+    <div id="personas">
+      <span class="section-label">Advisors</span>
+      {% for persona in personas %}
+        <label class="persona-chip">
+          <input type="checkbox" class="persona-checkbox" value="{{ persona.persona_id }}" />
+          <span>{{ persona.display_name }} <small>— {{ persona.title }}</small></span>
+        </label>
+      {% endfor %}
+    </div>
 
-  <div id="transcript"></div>
+    <div id="transcript"></div>
 
-  <form id="chat-form">
-    <input type="text" id="message-input" placeholder="Speak to the court..." autocomplete="off" />
-    <button type="submit">Send</button>
-  </form>
+    <form id="chat-form">
+      <input type="text" id="message-input" placeholder="Speak to the court..." autocomplete="off" />
+      <button type="submit">Send</button>
+    </form>
+  </main>
 
   <script src="{{ url_for('static', filename='chat.js') }}"></script>
 </body>
