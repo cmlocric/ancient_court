@@ -8,7 +8,7 @@ _CHECKPOINTS_DIR = Path(__file__).resolve().parent.parent.parent / "checkpoints"
 class TrainingConfig:
     persona_id: str
     # Instruction-tuned so it already answers the user; LoRA only layers the persona's voice on top.
-    base_model_id: str = "Qwen/Qwen2.5-1.5B-Instruct"
+    base_model_id: str = "Qwen/Qwen2.5-3B-Instruct"
     use_4bit: bool = False
     lora_r: int = 16
     lora_alpha: int = 32

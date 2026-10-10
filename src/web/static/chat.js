@@ -5,6 +5,58 @@ const transcriptEl = document.getElementById("transcript");
 const formEl = document.getElementById("chat-form");
 const inputEl = document.getElementById("message-input");
 const personaChips = document.querySelectorAll(".persona-chip");
+const voiceToggleEl = document.getElementById("voice-toggle");
+
+const speechSupported = "speechSynthesis" in window;
+let voiceEnabled = speechSupported && localStorage.getItem("voice_enabled") !== "false";
+// Earlier names win; falls back to any English voice if none are installed.
+const PREFERRED_VOICE_NAMES = ["Microsoft George", "Microsoft Ryan", "Google UK English Male", "Microsoft David", "Daniel"];
+
+// Browsers load voices asynchronously; speaking before then falls back to a robotic default voice.
+const voicesReady = new Promise((resolve) => {
+  if (!speechSupported || window.speechSynthesis.getVoices().length) return resolve();
+  window.speechSynthesis.addEventListener("voiceschanged", resolve, { once: true });
+  setTimeout(resolve, 2000);
+});
+
+function pickVoice() {
+  const voices = window.speechSynthesis.getVoices();
+  for (const name of PREFERRED_VOICE_NAMES) {
+    const match = voices.find((v) => v.name.includes(name));
+    if (match) return match;
+  }
+  return voices.find((v) => v.lang.startsWith("en")) || null;
+}
+
+async function speak(text) {
+  if (!voiceEnabled) return;
+  await voicesReady;
+  const utterance = new SpeechSynthesisUtterance(text);
+  const voice = pickVoice();
+  if (voice) utterance.voice = voice;
+  utterance.rate = 1.1;
+  utterance.pitch = 0.85;
+  // speechSynthesis queues utterances, so multiple advisors speak in turn rather than overlapping.
+  window.speechSynthesis.speak(utterance);
+}
+
+function updateVoiceToggle() {
+  voiceToggleEl.textContent = voiceEnabled ? "Voice: On" : "Voice: Off";
+  voiceToggleEl.setAttribute("aria-pressed", String(voiceEnabled));
+  voiceToggleEl.classList.toggle("voice-toggle-off", !voiceEnabled);
+}
+
+if (speechSupported) {
+  voiceToggleEl.addEventListener("click", () => {
+    voiceEnabled = !voiceEnabled;
+    localStorage.setItem("voice_enabled", String(voiceEnabled));
+    if (!voiceEnabled) window.speechSynthesis.cancel();
+    updateVoiceToggle();
+  });
+  updateVoiceToggle();
+} else {
+  voiceToggleEl.hidden = true;
+}
 
 // Advisors whose model is loaded and who will respond to the next message.
 const activePersonas = new Set();
@@ -31,6 +83,8 @@ function renderTurn(turn) {
   div.appendChild(text);
   transcriptEl.appendChild(div);
   transcriptEl.scrollTop = transcriptEl.scrollHeight;
+
+  if (turn.speaker !== "user") speak(turn.text);
 }
 
 async function handlePersonaChipClick(chip) {

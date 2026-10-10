@@ -11,7 +11,10 @@ from src.web.conversation import append_turn, get_transcript
 _CHECKPOINTS_ROOT = Path(__file__).resolve().parent.parent.parent / "checkpoints"
 
 
-def _resolve_checkpoint_dir(persona_id: str) -> Path:
+def _resolve_checkpoint_dir(persona_id: str) -> Path | None:
+    # Fine-tuned adapters currently hurt answer quality, so default to the base model + persona prompt.
+    if os.environ.get("PERSONA_USE_ADAPTER") != "1":
+        return None
     # Allows pointing a persona at a custom checkpoint (e.g. a smoke-test run)
     # without changing code: MARCUS_AURELIUS_CHECKPOINT_DIR=checkpoints/marcus_aurelius_smoke
     override = os.environ.get(f"{persona_id.upper()}_CHECKPOINT_DIR")

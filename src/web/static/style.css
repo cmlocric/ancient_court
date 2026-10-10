@@ -62,6 +62,24 @@ header .subtitle {
   border-bottom: 1px solid var(--border);
 }
 
+#voice-toggle {
+  margin-left: auto;
+  background: var(--navy);
+  color: var(--gold-light);
+  border: 1px solid var(--navy);
+  border-radius: 999px;
+  padding: 0.35rem 0.85rem;
+  font-size: 0.85rem;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+#voice-toggle.voice-toggle-off {
+  background: #fff;
+  color: var(--muted);
+  border-color: var(--border);
+}
+
 .section-label {
   font-weight: 600;
   color: var(--navy);

@@ -98,7 +98,7 @@ and `..._val.jsonl` (90/10 split).
 .venv\Scripts\python.exe -m src.persona.train --persona marcus_aurelius
 ```
 
-Fine-tunes the base model (`Qwen/Qwen2.5-1.5B-Instruct` by default) with LoRA and saves
+Fine-tunes the base model (`Qwen/Qwen2.5-3B-Instruct` by default) with LoRA and saves
 the adapter to `checkpoints/marcus_aurelius/`.
 
 Useful flags:
@@ -124,11 +124,15 @@ Then open `http://127.0.0.1:5000`. Select one or more personas and start
 chatting — each active persona sees the full conversation so far, including
 other personas' replies in the same round.
 
-By default each persona loads its checkpoint from `checkpoints/{persona_id}`.
+By default the chat UI uses the base model with each persona's system prompt
+and does **not** load the fine-tuned LoRA adapter (the current adapters reduce
+answer quality). To use the adapters, set `PERSONA_USE_ADAPTER=1`; each persona
+then loads its checkpoint from `checkpoints/{persona_id}`.
 To point a persona at a different checkpoint (e.g. a smoke-test run), set an
 environment variable before starting the server:
 
 ```powershell
+$env:PERSONA_USE_ADAPTER = "1"
 $env:MARCUS_AURELIUS_CHECKPOINT_DIR = "checkpoints/marcus_aurelius_smoke"
 .venv\Scripts\python.exe -m flask --app src.web.app run
 ```
