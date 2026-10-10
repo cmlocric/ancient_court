@@ -1,0 +1,41 @@
+body {
+  font-family: sans-serif;
+  max-width: 720px;
+  margin: 2rem auto;
+}
+
+#personas {
+  margin-bottom: 1rem;
+}
+
+#personas label {
+  margin-right: 1rem;
+}
+
+#transcript {
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  min-height: 300px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  overflow-y: auto;
+}
+
+.message {
+  margin-bottom: 0.75rem;
+}
+
+.message .speaker {
+  font-weight: bold;
+  display: block;
+}
+
+#chat-form {
+  display: flex;
+  gap: 0.5rem;
+}
+
+#message-input {
+  flex: 1;
+  padding: 0.5rem;
+}

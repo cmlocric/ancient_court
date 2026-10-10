@@ -1,0 +1,12 @@
+pypdf
+pytest
+flask
+# torch: plain pip install gives CPU-only wheels on Windows. For GPU/CUDA support:
+#   pip install --index-url https://download.pytorch.org/whl/cu126 torch --upgrade
+torch
+transformers>=4.38
+peft>=0.10
+trl>=0.8
+accelerate>=0.27
+datasets>=2.18
+# bitsandbytes  # optional, 4-bit QLoRA; native Windows support is unreliable, prefer WSL2
