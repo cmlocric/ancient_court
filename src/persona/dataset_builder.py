@@ -94,6 +94,8 @@ def _select_instruction(chunk_text: str, fallback_index: int) -> str:
 
 
 def _load_pages(persona: PersonaConfig) -> list[dict]:
+    if persona.source_json is None:
+        raise ValueError(f"Persona {persona.persona_id!r} has no source_json to build training data from.")
     data = json.loads(persona.source_json.read_text(encoding="utf-8"))
     pages = data["pages"]
     # Only filter when the source actually has book-section headers; sources

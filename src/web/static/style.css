@@ -227,3 +227,13 @@ header .subtitle {
 #chat-form button:hover {
   background: var(--navy-light);
 }
+
+#chat-form #debate-button {
+  background: var(--gold);
+  color: var(--navy);
+}
+
+#chat-form button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

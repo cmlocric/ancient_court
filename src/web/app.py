@@ -4,7 +4,7 @@ from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request
 
-from src.persona.infer import generate, generate_greeting
+from src.persona.infer import generate, generate_debate_reply, generate_greeting
 from src.persona.registry import PERSONAS
 from src.web.conversation import append_turn, get_transcript
 
@@ -51,7 +51,31 @@ def create_app() -> Flask:
         for persona_id in active_personas:
             transcript = get_transcript(session_id)
             checkpoint_dir = _resolve_checkpoint_dir(persona_id)
-            reply = generate(persona_id, transcript, checkpoint_dir)
+            reply = generate(persona_id, transcript, checkpoint_dir, present_persona_ids=active_personas)
+            append_turn(session_id, persona_id, reply)
+            new_turns.append({"speaker": persona_id, "text": reply})
+
+        return jsonify({"session_id": session_id, "turns": new_turns})
+
+    @app.post("/chat/debate")
+    def chat_debate():
+        payload = request.get_json(force=True) or {}
+        session_id = payload.get("session_id") or str(uuid.uuid4())
+        active_personas = payload.get("active_personas") or []
+
+        unknown = [pid for pid in active_personas if pid not in PERSONAS]
+        if unknown:
+            return jsonify({"error": f"unknown persona_id(s): {unknown}"}), 400
+        if len(active_personas) < 2:
+            return jsonify({"error": "a debate needs at least two active advisors"}), 400
+
+        new_turns = []
+        for persona_id in active_personas:
+            transcript = get_transcript(session_id)
+            checkpoint_dir = _resolve_checkpoint_dir(persona_id)
+            reply = generate_debate_reply(
+                persona_id, transcript, checkpoint_dir, present_persona_ids=active_personas
+            )
             append_turn(session_id, persona_id, reply)
             new_turns.append({"speaker": persona_id, "text": reply})
 
@@ -62,6 +86,7 @@ def create_app() -> Flask:
         payload = request.get_json(force=True) or {}
         session_id = payload.get("session_id") or str(uuid.uuid4())
         persona_id = payload.get("persona_id")
+        active_personas = [pid for pid in (payload.get("active_personas") or []) if pid in PERSONAS]
 
         if persona_id not in PERSONAS:
             return jsonify({"error": f"unknown persona_id: {persona_id}"}), 400
@@ -70,7 +95,9 @@ def create_app() -> Flask:
         # greet the court instead of waiting for the first user question.
         transcript = get_transcript(session_id)
         checkpoint_dir = _resolve_checkpoint_dir(persona_id)
-        greeting = generate_greeting(persona_id, transcript, checkpoint_dir)
+        greeting = generate_greeting(
+            persona_id, transcript, checkpoint_dir, present_persona_ids=active_personas + [persona_id]
+        )
         append_turn(session_id, persona_id, greeting)
 
         return jsonify({"session_id": session_id, "turn": {"speaker": persona_id, "text": greeting}})

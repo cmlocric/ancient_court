@@ -1,5 +1,6 @@
 import argparse
 import re
+from collections.abc import Sequence
 from pathlib import Path
 
 from .registry import PERSONAS, get_persona
@@ -81,10 +82,36 @@ _CONCISENESS_HINT = (
 # Used to prompt a persona's opening line when it's first activated in a conversation.
 _GREETING_INSTRUCTION = "Introduce yourself and offer a brief greeting to those gathered."
 
+# Used for a debate round, where advisors answer each other instead of a new visitor message.
+_DEBATE_INSTRUCTION = (
+    "Speak now as {name}, in the first person. Reply directly to {others}, addressing "
+    "them as 'you': say whether you agree or disagree with what they just said, and why."
+)
 
-def build_messages_for_persona(persona, transcript: list[dict]) -> list[dict]:
+
+def _other_advisor_names(persona, present_persona_ids: Sequence[str]) -> list[str]:
+    return [
+        PERSONAS[pid].display_name
+        for pid in present_persona_ids
+        if pid != persona.persona_id and pid in PERSONAS
+    ]
+
+
+def build_messages_for_persona(
+    persona, transcript: list[dict], present_persona_ids: Sequence[str] = ()
+) -> list[dict]:
     """Build chat-template messages from the persona's point of view."""
-    messages = [{"role": "system", "content": f"{persona.system_prompt} {_CONCISENESS_HINT}"}]
+    system_content = f"{persona.system_prompt} {_CONCISENESS_HINT}"
+    others = _other_advisor_names(persona, present_persona_ids)
+    if others:
+        # Without an explicit identity, the model narrates the council in the third person.
+        system_content += (
+            f" Also present in this council: {', '.join(others)}. Their words appear prefixed "
+            f"with their name. You are {persona.display_name}: always speak as yourself in the "
+            "first person ('I'), address the others directly as 'you', never refer to yourself "
+            "by name, and never speak for them."
+        )
+    messages = [{"role": "system", "content": system_content}]
     for user_text, persona_text in persona.example_dialogue:
         messages.append({"role": "user", "content": user_text})
         messages.append({"role": "assistant", "content": persona_text})
@@ -132,16 +159,38 @@ def _trim_to_last_sentence(text: str) -> str:
     return text[: ends[-1].end()] if ends else text
 
 
+def _strip_own_name_label(text: str, display_name: str) -> str:
+    # The model sometimes copies the "Name: ..." format used for other advisors' lines.
+    prefix = f"{display_name}:"
+    return text[len(prefix):].lstrip() if text.startswith(prefix) else text
+
+
 def generate(
     persona_id: str,
     transcript: list[dict],
     checkpoint_dir: str | Path | None,
     max_new_tokens: int = 120,
+    present_persona_ids: Sequence[str] = (),
 ) -> str:
     """Generate a persona-voiced reply continuing the given conversation transcript."""
     model, tokenizer, persona = load_persona_model(persona_id, checkpoint_dir)
-    messages = build_messages_for_persona(persona, transcript)
-    return _run_generation(model, tokenizer, messages, max_new_tokens)
+    messages = build_messages_for_persona(persona, transcript, present_persona_ids)
+    return _strip_own_name_label(_run_generation(model, tokenizer, messages, max_new_tokens), persona.display_name)
+
+
+def _generate_with_instruction(
+    persona_id: str,
+    transcript: list[dict],
+    checkpoint_dir: str | Path | None,
+    instruction: str,
+    max_new_tokens: int,
+    present_persona_ids: Sequence[str],
+) -> str:
+    # The instruction is a transient visitor turn and is never stored in the transcript.
+    model, tokenizer, persona = load_persona_model(persona_id, checkpoint_dir)
+    prompted = transcript + [{"speaker": "user", "text": instruction}]
+    messages = build_messages_for_persona(persona, prompted, present_persona_ids)
+    return _strip_own_name_label(_run_generation(model, tokenizer, messages, max_new_tokens), persona.display_name)
 
 
 def generate_greeting(
@@ -149,12 +198,28 @@ def generate_greeting(
     transcript: list[dict],
     checkpoint_dir: str | Path | None,
     max_new_tokens: int = 80,
+    present_persona_ids: Sequence[str] = (),
 ) -> str:
-    """Generate a persona's opening greeting, without persisting the prompt instruction as a real turn."""
-    model, tokenizer, persona = load_persona_model(persona_id, checkpoint_dir)
-    greeting_transcript = transcript + [{"speaker": "user", "text": _GREETING_INSTRUCTION}]
-    messages = build_messages_for_persona(persona, greeting_transcript)
-    return _run_generation(model, tokenizer, messages, max_new_tokens)
+    """Generate a persona's opening greeting."""
+    return _generate_with_instruction(
+        persona_id, transcript, checkpoint_dir, _GREETING_INSTRUCTION, max_new_tokens, present_persona_ids
+    )
+
+
+def generate_debate_reply(
+    persona_id: str,
+    transcript: list[dict],
+    checkpoint_dir: str | Path | None,
+    max_new_tokens: int = 120,
+    present_persona_ids: Sequence[str] = (),
+) -> str:
+    """Generate a persona's response to the other advisors' latest remarks."""
+    persona = get_persona(persona_id)
+    others = _other_advisor_names(persona, present_persona_ids) or ["the other advisors"]
+    instruction = _DEBATE_INSTRUCTION.format(name=persona.display_name, others=" and ".join(others))
+    return _generate_with_instruction(
+        persona_id, transcript, checkpoint_dir, instruction, max_new_tokens, present_persona_ids
+    )
 
 
 def _parse_args() -> argparse.Namespace:

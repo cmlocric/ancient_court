@@ -51,3 +51,13 @@ def test_build_messages_for_persona_maps_roles_in_order():
         {"role": "assistant", "content": "Virtue is its own reward."},
         {"role": "user", "content": "other_persona: I disagree."},
     ]
+
+
+def test_build_messages_for_persona_names_other_present_advisors():
+    persona = _fake_persona()
+
+    messages = build_messages_for_persona(persona, [], present_persona_ids=["fake_persona", "marcus_aurelius"])
+
+    assert "Also present in this council: Marcus Aurelius." in messages[0]["content"]
+    assert "You are Fake Persona:" in messages[0]["content"]
+    assert "Fake Persona." not in messages[0]["content"]
