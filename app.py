@@ -43,8 +43,6 @@ def _render_transcript(transcript: list[dict], thinking: str | None = None) -> s
         parts.append(
             f'<div class="message message-persona message-thinking">{html.escape(_name(thinking))} is thinking…</div>'
         )
-    # Newest first: #transcript is a reversed column, which keeps the latest message scrolled into view.
-    parts.reverse()
     return f'<div id="transcript">{"".join(parts)}</div>'
 
 
@@ -102,29 +100,47 @@ def on_voice_toggle(voice_on):
     return voice_on, gr.Button(value=label, elem_classes=[] if voice_on else ["voice-toggle-off"])
 
 
-# Browser speech: same per-advisor voice preferences as the Flask UI's chat.js.
+# Browser speech: same per-advisor voice preferences and gender matching as the Flask UI's chat.js.
 _SPEAK_JS = """
 (payload, voiceOn) => {
   if (!voiceOn || !payload || !("speechSynthesis" in window)) return;
   const { speaker, text } = JSON.parse(payload);
   const settings = {
-    marcus_aurelius: { names: ["Microsoft George", "Microsoft Ryan", "Google UK English Male", "Microsoft David", "Daniel"], pitch: 0.85 },
-    machiavelli: { names: ["Microsoft Guy", "Microsoft Mark", "Google US English", "Microsoft David", "Alex"], pitch: 1.05 },
-    socrates: { names: ["Microsoft Ryan", "Microsoft George", "Google UK English Male", "Microsoft David", "Daniel"], pitch: 1.15 },
-    abraham_lincoln: { names: ["Microsoft Christopher", "Microsoft Eric", "Microsoft David", "Google US English", "Alex"], pitch: 0.75 },
-  }[speaker] || { names: [], pitch: 1.0 };
+    marcus_aurelius: { gender: "male", names: ["Microsoft George", "Microsoft Ryan", "Google UK English Male", "Microsoft David", "Daniel"], pitch: 0.85 },
+    machiavelli: { gender: "male", names: ["Microsoft Guy", "Microsoft Mark", "Microsoft David", "Alex", "Aaron"], pitch: 1.05 },
+    socrates: { gender: "male", names: ["Microsoft Ryan", "Microsoft George", "Google UK English Male", "Microsoft David", "Arthur"], pitch: 1.15 },
+    abraham_lincoln: { gender: "male", names: ["Microsoft Christopher", "Microsoft Eric", "Microsoft David", "Alex", "Fred"], pitch: 0.75 },
+  }[speaker] || { gender: "male", names: [], pitch: 1.0 };
+  const hints = {
+    male: [" male", "david", "mark", "george", "ryan", "guy", "christopher", "eric", "daniel", "alex", "aaron",
+      "arthur", "fred", "gordon", "rishi", "ralph", "albert", "reed", "thomas", "oliver", "james",
+      "-x-iom", "-x-iol", "-x-tpd", "-x-rjs", "-x-gbd"],
+    female: ["female", "zira", "samantha", "karen", "moira", "tessa", "martha", "catherine", "nicky", "victoria",
+      "susan", "hazel", "aria", "jenny", "libby", "sonia", "emma", "google us english",
+      "-x-iob", "-x-iog", "-x-sfg", "-x-tpc", "-x-tpf"],
+  };
+  const other = settings.gender === "male" ? "female" : "male";
+  const label = (v) => ` ${v.name} ${v.voiceURI}`.toLowerCase();
+  const isOther = (v) => hints[other].some((h) => label(v).includes(h));
+  const isSame = (v) => !isOther(v) && hints[settings.gender].some((h) => label(v).includes(h));
   const speakNow = () => {
-    const voices = window.speechSynthesis.getVoices();
+    const voices = window.speechSynthesis.getVoices().filter((v) => v.lang.toLowerCase().startsWith("en"));
     let voice = null;
     for (const name of settings.names) {
-      voice = voices.find((v) => v.name.includes(name));
+      voice = voices.find((v) => v.name.includes(name) && !isOther(v));
       if (voice) break;
     }
-    voice = voice || voices.find((v) => v.lang.startsWith("en")) || null;
+    voice = voice || voices.find(isSame) || null;
+    const genderMatched = Boolean(voice);
+    voice = voice || voices.find((v) => !isOther(v)) || voices[0] || null;
     const utterance = new SpeechSynthesisUtterance(text);
-    if (voice) utterance.voice = voice;
+    if (voice) {
+      utterance.voice = voice;
+      utterance.lang = voice.lang;
+    }
     utterance.rate = 1.1;
-    utterance.pitch = settings.pitch;
+    // Deepen the fallback when no voice of the right gender is installed.
+    utterance.pitch = genderMatched ? settings.pitch : settings.pitch * 0.75;
     window.speechSynthesis.speak(utterance);
   };
   if (window.speechSynthesis.getVoices().length) speakNow();
@@ -153,8 +169,7 @@ footer { display: none !important; }
 header h1 { font-size: 2.6rem !important; line-height: 1.2 !important; font-weight: 700 !important; }
 header .subtitle { font-size: 1rem !important; }
 
-/* Newest message at the bottom and kept in view: turns are rendered newest-first in a reversed column. */
-#transcript { display: flex; flex-direction: column-reverse; justify-content: flex-end; height: 480px; }
+#transcript { height: 480px; }
 
 #personas { flex-direction: column !important; align-items: stretch !important; gap: 0.75rem !important; }
 #personas-header { align-items: center !important; justify-content: space-between !important; }
@@ -182,8 +197,20 @@ header .subtitle { font-size: 1rem !important; }
 #chat-form button { flex: 0 0 auto !important; min-width: 0 !important; }
 """
 
-# The shared stylesheet is light-only, so keep Gradio from switching to dark mode.
-_FORCE_LIGHT_JS = "() => { document.querySelectorAll('.dark').forEach((el) => el.classList.remove('dark')); }"
+# Runs once on page load: keeps the page light (the shared stylesheet is light-only) and scrolls the
+# conversation to the latest message whenever Gradio re-renders it.
+_PAGE_LOAD_JS = """
+() => {
+  document.querySelectorAll('.dark').forEach((el) => el.classList.remove('dark'));
+  const scrollToLatest = () => {
+    const transcript = document.querySelector('#transcript');
+    if (transcript) transcript.scrollTop = transcript.scrollHeight;
+  };
+  new MutationObserver((mutations) => {
+    if (mutations.some((m) => m.target.closest && m.target.closest('#transcript-box'))) scrollToLatest();
+  }).observe(document.body, { childList: true, subtree: true });
+}
+"""
 
 _HEADER_HTML = (
     "<header><h1>Ancient Court</h1>"
@@ -210,7 +237,7 @@ with gr.Blocks(title="Ancient Court") as demo:
                 elem_id="advisors",
             )
 
-        transcript_html = gr.HTML(_render_transcript([]), apply_default_css=False)
+        transcript_html = gr.HTML(_render_transcript([]), apply_default_css=False, elem_id="transcript-box")
 
         with gr.Row(elem_id="chat-form"):
             message = gr.Textbox(
@@ -245,4 +272,4 @@ with gr.Blocks(title="Ancient Court") as demo:
 
 
 if __name__ == "__main__":
-    demo.launch(css_paths=[_STYLE_CSS], css=_GRADIO_OVERRIDES_CSS, js=_FORCE_LIGHT_JS)
+    demo.launch(css_paths=[_STYLE_CSS], css=_GRADIO_OVERRIDES_CSS, js=_PAGE_LOAD_JS)

@@ -18,23 +18,43 @@ let voiceEnabled = speechSupported && localStorage.getItem("voice_enabled") !== 
 // Per-advisor voice preferences; earlier names win. Different pitch keeps advisors distinct even if they share a voice.
 const VOICE_SETTINGS = {
   marcus_aurelius: {
+    gender: "male",
     names: ["Microsoft George", "Microsoft Ryan", "Google UK English Male", "Microsoft David", "Daniel"],
     pitch: 0.85,
   },
   machiavelli: {
-    names: ["Microsoft Guy", "Microsoft Mark", "Google US English", "Microsoft David", "Alex"],
+    gender: "male",
+    names: ["Microsoft Guy", "Microsoft Mark", "Microsoft David", "Alex", "Aaron"],
     pitch: 1.05,
   },
   socrates: {
-    names: ["Microsoft Ryan", "Microsoft George", "Google UK English Male", "Microsoft David", "Daniel"],
+    gender: "male",
+    names: ["Microsoft Ryan", "Microsoft George", "Google UK English Male", "Microsoft David", "Arthur"],
     pitch: 1.15,
   },
   abraham_lincoln: {
-    names: ["Microsoft Christopher", "Microsoft Eric", "Microsoft David", "Google US English", "Alex"],
+    gender: "male",
+    names: ["Microsoft Christopher", "Microsoft Eric", "Microsoft David", "Alex", "Fred"],
     pitch: 0.75,
   },
 };
-const DEFAULT_VOICE_SETTINGS = { names: [], pitch: 1.0 };
+const DEFAULT_VOICE_SETTINGS = { gender: "male", names: [], pitch: 1.0 };
+
+// Browsers don't expose a voice's gender, so it's inferred from known voice names on Windows, Apple and Android.
+const VOICE_GENDER_HINTS = {
+  male: [
+    " male", "david", "mark", "george", "ryan", "guy", "christopher", "eric", "daniel", "alex", "aaron",
+    "arthur", "fred", "gordon", "rishi", "ralph", "albert", "reed", "thomas", "oliver", "james",
+    "-x-iom", "-x-iol", "-x-tpd", "-x-rjs", "-x-gbd",
+  ],
+  female: [
+    "female", "zira", "samantha", "karen", "moira", "tessa", "martha", "catherine", "nicky", "victoria",
+    "susan", "hazel", "aria", "jenny", "libby", "sonia", "emma", "google us english",
+    "-x-iob", "-x-iog", "-x-sfg", "-x-tpc", "-x-tpf",
+  ],
+};
+// Extra pitch drop when no voice of the right gender is installed, so the fallback at least sounds deeper.
+const MISMATCHED_VOICE_PITCH_FACTOR = 0.75;
 
 // Browsers load voices asynchronously; speaking before then falls back to a robotic default voice.
 const voicesReady = new Promise((resolve) => {
@@ -43,13 +63,30 @@ const voicesReady = new Promise((resolve) => {
   setTimeout(resolve, 2000);
 });
 
-function pickVoice(preferredNames) {
-  const voices = window.speechSynthesis.getVoices();
-  for (const name of preferredNames) {
-    const match = voices.find((v) => v.name.includes(name));
-    if (match) return match;
+function voiceMatchesGender(voice, gender) {
+  const label = ` ${voice.name} ${voice.voiceURI}`.toLowerCase();
+  const other = gender === "male" ? "female" : "male";
+  if (VOICE_GENDER_HINTS[other].some((hint) => label.includes(hint))) return false;
+  return VOICE_GENDER_HINTS[gender].some((hint) => label.includes(hint));
+}
+
+function voiceIsOtherGender(voice, gender) {
+  const label = ` ${voice.name} ${voice.voiceURI}`.toLowerCase();
+  const other = gender === "male" ? "female" : "male";
+  return VOICE_GENDER_HINTS[other].some((hint) => label.includes(hint));
+}
+
+// Returns { voice, genderMatched }: preferred names first, then any voice of the right gender, then any non-mismatched voice.
+function pickVoice(settings) {
+  const voices = window.speechSynthesis.getVoices().filter((v) => v.lang.toLowerCase().startsWith("en"));
+  for (const name of settings.names) {
+    const match = voices.find((v) => v.name.includes(name) && !voiceIsOtherGender(v, settings.gender));
+    if (match) return { voice: match, genderMatched: true };
   }
-  return voices.find((v) => v.lang.startsWith("en")) || null;
+  const sameGender = voices.find((v) => voiceMatchesGender(v, settings.gender));
+  if (sameGender) return { voice: sameGender, genderMatched: true };
+  const unknown = voices.find((v) => !voiceIsOtherGender(v, settings.gender));
+  return { voice: unknown || voices[0] || null, genderMatched: false };
 }
 
 async function speak(text, speakerId) {
@@ -57,10 +94,13 @@ async function speak(text, speakerId) {
   await voicesReady;
   const settings = VOICE_SETTINGS[speakerId] || DEFAULT_VOICE_SETTINGS;
   const utterance = new SpeechSynthesisUtterance(text);
-  const voice = pickVoice(settings.names);
-  if (voice) utterance.voice = voice;
+  const { voice, genderMatched } = pickVoice(settings);
+  if (voice) {
+    utterance.voice = voice;
+    utterance.lang = voice.lang;
+  }
   utterance.rate = 1.1;
-  utterance.pitch = settings.pitch;
+  utterance.pitch = genderMatched ? settings.pitch : settings.pitch * MISMATCHED_VOICE_PITCH_FACTOR;
   // speechSynthesis queues utterances, so multiple advisors speak in turn rather than overlapping.
   window.speechSynthesis.speak(utterance);
 }
