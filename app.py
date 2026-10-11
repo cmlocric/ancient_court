@@ -139,9 +139,19 @@ _STYLE_CSS = Path(__file__).parent / "src" / "web" / "static" / "style.css"
 
 # Neutralizes Gradio's own wrappers so the shared stylesheet shows through.
 _GRADIO_OVERRIDES_CSS = """
-.gradio-container { background: transparent !important; max-width: 820px !important; margin: 0 auto !important; }
+.gradio-container { background: transparent !important; max-width: 1040px !important; width: 100% !important; margin: 0 auto !important; }
+/* Restores the shared stylesheet's navy band behind the header, which Gradio's page background covers. */
+body, gradio-app {
+  background: linear-gradient(180deg, var(--navy) 0%, var(--navy-light) 220px, #f2efe8 220px) !important;
+}
+.gradio-container main, .gradio-container .contain { max-width: 1040px !important; width: 100% !important; }
+.gradio-container .chat-card { max-width: 980px !important; width: 100% !important; margin: 0 auto 2.5rem !important; }
 .gradio-container .block, .gradio-container .form { background: transparent !important; border: none !important; box-shadow: none !important; padding: 0 !important; }
 footer { display: none !important; }
+
+/* Gradio's heading styles otherwise shrink the title to body-text size. */
+header h1 { font-size: 2.6rem !important; line-height: 1.2 !important; font-weight: 700 !important; }
+header .subtitle { font-size: 1rem !important; }
 
 /* Newest message at the bottom and kept in view: turns are rendered newest-first in a reversed column. */
 #transcript { display: flex; flex-direction: column-reverse; justify-content: flex-end; height: 480px; }
@@ -185,7 +195,7 @@ with gr.Blocks(title="Ancient Court") as demo:
 
     with gr.Column(elem_classes=["chat-card"]):
         with gr.Row(elem_id="personas"):
-            gr.HTML('<span class="section-label">Advisors</span>', apply_default_css=False)
+            gr.HTML('<span class="section-label">Advisors</span>', apply_default_css=False, scale=0, min_width=0)
             advisors = gr.CheckboxGroup(
                 choices=[(f"{p.display_name} — {p.title}", p.persona_id) for p in PERSONAS.values()],
                 show_label=False,
