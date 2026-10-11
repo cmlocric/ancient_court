@@ -95,23 +95,53 @@ function updateActionButtons() {
   debateButtonEl.disabled = isBusy || activePersonas.size < 2;
 }
 
-async function postTurns(url, body) {
+async function postJson(url, body) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await response.json();
+  if (data.error) throw new Error(data.error);
+  return data;
+}
+
+function showThinking(personaId) {
+  const div = document.createElement("div");
+  div.className = "message message-persona message-thinking";
+  div.textContent = `${displayNames[personaId] || personaId} is thinking…`;
+  transcriptEl.appendChild(div);
+  transcriptEl.scrollTop = transcriptEl.scrollHeight;
+  return div;
+}
+
+// Requests advisors one at a time: each reply is shown and spoken while the next generates.
+async function runRound(mode, message) {
+  const advisors = Array.from(activePersonas);
   isBusy = true;
   updateActionButtons();
   try {
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const data = await response.json();
-    if (data.error) {
-      alert(data.error);
-      return;
+    if (message !== undefined) {
+      await postJson("/chat/message", { session_id: sessionId, message });
     }
-    data.turns.filter((turn) => turn.speaker !== "user").forEach(renderTurn);
+    for (const personaId of advisors) {
+      const placeholder = showThinking(personaId);
+      try {
+        const data = await postJson("/chat/respond", {
+          session_id: sessionId,
+          persona_id: personaId,
+          active_personas: advisors,
+          mode,
+        });
+        placeholder.remove();
+        renderTurn(data.turn);
+      } catch (err) {
+        placeholder.remove();
+        throw err;
+      }
+    }
   } catch (err) {
-    alert("Request failed.");
+    alert(err.message || "Request failed.");
   } finally {
     isBusy = false;
     updateActionButtons();
@@ -201,18 +231,11 @@ formEl.addEventListener("submit", async (event) => {
   inputEl.value = "";
   renderTurn({ speaker: "user", text: message });
 
-  await postTurns("/chat/send", {
-    session_id: sessionId,
-    message,
-    active_personas: Array.from(activePersonas),
-  });
+  await runRound("reply", message);
 });
 
 debateButtonEl.addEventListener("click", async () => {
   if (isBusy || activePersonas.size < 2) return;
-  await postTurns("/chat/debate", {
-    session_id: sessionId,
-    active_personas: Array.from(activePersonas),
-  });
+  await runRound("debate");
 });
 

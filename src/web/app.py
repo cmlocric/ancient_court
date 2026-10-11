@@ -32,54 +32,48 @@ def create_app() -> Flask:
         ]
         return render_template("chat.html", personas=personas)
 
-    @app.post("/chat/send")
-    def chat_send():
+    def _validate_personas(active_personas):
+        unknown = [pid for pid in active_personas if pid not in PERSONAS]
+        if unknown:
+            return jsonify({"error": f"unknown persona_id(s): {unknown}"}), 400
+        return None
+
+    @app.post("/chat/message")
+    def chat_message():
         payload = request.get_json(force=True) or {}
         session_id = payload.get("session_id") or str(uuid.uuid4())
         message = (payload.get("message") or "").strip()
-        active_personas = payload.get("active_personas") or []
 
         if not message:
             return jsonify({"error": "message is required"}), 400
-        unknown = [pid for pid in active_personas if pid not in PERSONAS]
-        if unknown:
-            return jsonify({"error": f"unknown persona_id(s): {unknown}"}), 400
 
         append_turn(session_id, "user", message)
-        new_turns = [{"speaker": "user", "text": message}]
+        return jsonify({"session_id": session_id, "turn": {"speaker": "user", "text": message}})
 
-        for persona_id in active_personas:
-            transcript = get_transcript(session_id)
-            checkpoint_dir = _resolve_checkpoint_dir(persona_id)
-            reply = generate(persona_id, transcript, checkpoint_dir, present_persona_ids=active_personas)
-            append_turn(session_id, persona_id, reply)
-            new_turns.append({"speaker": persona_id, "text": reply})
-
-        return jsonify({"session_id": session_id, "turns": new_turns})
-
-    @app.post("/chat/debate")
-    def chat_debate():
+    # One advisor per request, so the page can show and speak each reply while the next one generates.
+    @app.post("/chat/respond")
+    def chat_respond():
         payload = request.get_json(force=True) or {}
         session_id = payload.get("session_id") or str(uuid.uuid4())
+        persona_id = payload.get("persona_id")
         active_personas = payload.get("active_personas") or []
+        mode = payload.get("mode", "reply")
 
-        unknown = [pid for pid in active_personas if pid not in PERSONAS]
-        if unknown:
-            return jsonify({"error": f"unknown persona_id(s): {unknown}"}), 400
-        if len(active_personas) < 2:
+        error = _validate_personas(active_personas + [persona_id])
+        if error:
+            return error
+        if mode not in ("reply", "debate"):
+            return jsonify({"error": f"unknown mode: {mode}"}), 400
+        if mode == "debate" and len(active_personas) < 2:
             return jsonify({"error": "a debate needs at least two active advisors"}), 400
 
-        new_turns = []
-        for persona_id in active_personas:
-            transcript = get_transcript(session_id)
-            checkpoint_dir = _resolve_checkpoint_dir(persona_id)
-            reply = generate_debate_reply(
-                persona_id, transcript, checkpoint_dir, present_persona_ids=active_personas
-            )
-            append_turn(session_id, persona_id, reply)
-            new_turns.append({"speaker": persona_id, "text": reply})
+        transcript = get_transcript(session_id)
+        checkpoint_dir = _resolve_checkpoint_dir(persona_id)
+        generator = generate_debate_reply if mode == "debate" else generate
+        reply = generator(persona_id, transcript, checkpoint_dir, present_persona_ids=active_personas)
+        append_turn(session_id, persona_id, reply)
 
-        return jsonify({"session_id": session_id, "turns": new_turns})
+        return jsonify({"session_id": session_id, "turn": {"speaker": persona_id, "text": reply}})
 
     @app.post("/persona/activate")
     def persona_activate():

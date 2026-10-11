@@ -26,8 +26,9 @@ def _load_base_model(base_model_id: str):
     model = AutoModelForCausalLM.from_pretrained(
         base_model_id,
         dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-        device_map="auto" if torch.cuda.is_available() else None,
     )
+    # Explicit .to("cuda") rather than device_map, as ZeroGPU Spaces require at startup.
+    model.to("cuda" if torch.cuda.is_available() else "cpu")
     model.eval()
 
     _BASE_MODEL_CACHE[base_model_id] = (model, tokenizer)

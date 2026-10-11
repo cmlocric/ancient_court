@@ -181,6 +181,18 @@ header .subtitle {
   color: var(--navy);
 }
 
+.message-thinking {
+  color: var(--muted);
+  font-style: italic;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.5;
+  }
+}
+
 .message-user {
   background: var(--navy);
   color: #fff;
