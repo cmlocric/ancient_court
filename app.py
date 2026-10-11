@@ -156,11 +156,16 @@ header .subtitle { font-size: 1rem !important; }
 /* Newest message at the bottom and kept in view: turns are rendered newest-first in a reversed column. */
 #transcript { display: flex; flex-direction: column-reverse; justify-content: flex-end; height: 480px; }
 
-#personas { gap: 0.6rem !important; }
-#advisors .wrap { gap: 0.6rem; }
+#personas { flex-direction: column !important; align-items: stretch !important; gap: 0.75rem !important; }
+#personas-header { align-items: center !important; justify-content: space-between !important; }
+/* 2x2 grid of equal-width chips; targets whatever element directly holds the chip labels. */
+#advisors div:has(> label) {
+  display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.6rem; width: 100%;
+}
 #advisors label {
+  display: flex !important; justify-content: center; text-align: center; width: 100%; margin: 0 !important;
   background: #fff !important; border: 1px solid var(--border) !important; border-radius: 999px !important;
-  padding: 0.35rem 0.75rem !important; font-size: 0.9rem; color: var(--ink) !important; cursor: pointer;
+  padding: 0.45rem 0.75rem !important; font-size: 0.9rem; color: var(--ink) !important; cursor: pointer;
 }
 #advisors label:has(input:checked), #advisors label.selected { border-color: var(--gold) !important; background: #fdf6e6 !important; }
 #advisors input[type="checkbox"] { display: none; }
@@ -194,16 +199,16 @@ with gr.Blocks(title="Ancient Court") as demo:
     gr.HTML(_HEADER_HTML, apply_default_css=False)
 
     with gr.Column(elem_classes=["chat-card"]):
-        with gr.Row(elem_id="personas"):
-            gr.HTML('<span class="section-label">Advisors</span>', apply_default_css=False, scale=0, min_width=0)
+        with gr.Column(elem_id="personas"):
+            with gr.Row(elem_id="personas-header"):
+                gr.HTML('<span class="section-label">Advisors:</span>', apply_default_css=False, scale=1)
+                voice_button = gr.Button("Voice: On", elem_id="voice-toggle", size="sm", scale=0)
             advisors = gr.CheckboxGroup(
                 choices=[(f"{p.display_name} — {p.title}", p.persona_id) for p in PERSONAS.values()],
                 show_label=False,
                 container=False,
                 elem_id="advisors",
-                scale=1,
             )
-            voice_button = gr.Button("Voice: On", elem_id="voice-toggle", size="sm", scale=0)
 
         transcript_html = gr.HTML(_render_transcript([]), apply_default_css=False)
 
