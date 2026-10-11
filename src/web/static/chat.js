@@ -25,6 +25,14 @@ const VOICE_SETTINGS = {
     names: ["Microsoft Guy", "Microsoft Mark", "Google US English", "Microsoft David", "Alex"],
     pitch: 1.05,
   },
+  socrates: {
+    names: ["Microsoft Ryan", "Microsoft George", "Google UK English Male", "Microsoft David", "Daniel"],
+    pitch: 1.15,
+  },
+  abraham_lincoln: {
+    names: ["Microsoft Christopher", "Microsoft Eric", "Microsoft David", "Google US English", "Alex"],
+    pitch: 0.75,
+  },
 };
 const DEFAULT_VOICE_SETTINGS = { names: [], pitch: 1.0 };
 
